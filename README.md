@@ -5,10 +5,11 @@ Small graphical tool for previewing xrandr settings live
 
 ## Dependencies
 - GTK 3
+- pkg-config
 
 debian:
 ```bash
-sudo apt install libgtk-3-dev
+sudo apt install libgtk-3-dev pkg-config
 ```
 
 ## Running
