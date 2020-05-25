@@ -323,7 +323,7 @@ application_state_new ()
 void
 application_state_free (application_state* state)
 {
-  g_object_unref(state->monitor_states);
+  g_hash_table_unref(state->monitor_states);
   g_array_free(state->monitors, TRUE);
   g_array_free(state->sliders, TRUE);
   free(state);
