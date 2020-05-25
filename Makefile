@@ -1,12 +1,12 @@
 CFLAGS := `pkg-config --cflags --libs gtk+-3.0`
 
-xredshift: main.c
-	cc -o xredshift main.c $(CFLAGS)
+gtk-xrandr-gamma: main.c
+	cc -o gtk-xrandr-gamma main.c $(CFLAGS)
 
 .PHONY: clean
 clean:
-	rm -f *.o xredshift
+	rm -f *.o gtk-xrandr-gamma
 
 .PHONY: run
 run:
-	make && ./xredshift
+	make && ./gtk-xrandr-gamma
