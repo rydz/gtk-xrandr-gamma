@@ -1,0 +1,24 @@
+# gtk-xrandr-gamma
+Small graphical tool for previewing xrandr settings live
+
+![screenshot](https://i.imgur.com/Hq97f6S.png)
+
+## Dependencies
+- GTK 3
+
+debian:
+```bash
+sudo apt install libgtk-3-dev
+```
+
+## Running
+
+```bash
+git clone "https://github.com/rydz/gtk-xrandr-gamma.git"
+cd gtk-xrandr-gamma
+make run
+```
+
+## TODO
+- Store slider settings relative to each display
+- Redshift integration
