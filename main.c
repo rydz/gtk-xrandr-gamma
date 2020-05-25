@@ -4,12 +4,22 @@
 
 #define SLIDER_MAX 100
 
-typedef struct application_state {
-  GMutex m;
-  gchar* display_name;
-  GArray* monitors; // GArray<*char>
+typedef struct monitor_state {
+  int brightness;
+  int r;
+  int g;
+  int b;
+} monitor_state;
 
-  GtkLabel* command_label;
+typedef struct application_state {
+  GMutex      m;
+  gchar*      display_name;
+
+  GArray*     monitors;          // GArray<char*>
+  GHashTable* monitor_states;    // GHashTable<monitor_state> store slider values for monitors
+  GArray*     sliders;           // GArray<GtkScale*>
+
+  GtkLabel*   command_label;     // label displaying generated command output
 
   // range 0-100
   int r;
@@ -49,6 +59,42 @@ update_xrandr (application_state* state)
   g_mutex_unlock (&state->m);
 }
 
+// replace the current state with the saved values for the given monitor
+void
+application_state_swap (application_state* state, 
+                        const gchar* monitor)
+{
+  gchar* old = state->display_name; // obtain entry for current monitor state
+  monitor_state* ostate = g_hash_table_lookup(state->monitor_states, old);
+  if (!ostate) {                    // if it wasn't found, allocate memory for it
+    monitor_state* x = malloc(sizeof(monitor_state));
+    g_hash_table_insert(state->monitor_states, old, x);
+    ostate = x;
+  }
+
+  // update old state
+  ostate->brightness = state->brightness;
+  ostate->r          = state->r;
+  ostate->g          = state->g;
+  ostate->b          = state->b;
+
+  // swap new state into current
+  monitor_state* new_state = g_hash_table_lookup(state->monitor_states, monitor);
+  if (!new_state) { // if the state doesn't exist, insert defaults
+    state->r = 100;
+    state->g = 100;
+    state->b = 100;
+    state->brightness = 100;
+  } else {
+    state->r = new_state->r;
+    state->g = new_state->g;
+    state->b = new_state->b;
+    state->brightness = new_state->brightness;
+  }
+
+  state->display_name = monitor;
+}
+
 /**
  * @data: slider_callback_data*
  */
@@ -72,6 +118,24 @@ slider_callback (GtkRange*   range,
 }
 
 void
+application_state_update_sliders (application_state* state)
+{
+  for (int i=0; i < state->sliders->len; i++) {
+    printf("application_state_update: %d\n", i);
+    gdouble value;
+    switch (i) {
+    case 0: value = state->brightness; break;
+    case 1: value = state->r;          break;
+    case 2: value = state->g;          break;
+    case 3: value = state->b;          break;
+    default: 100;
+    }
+    GtkScale* scale = g_array_index(state->sliders, GtkScale*, i);
+    gtk_range_set_value( GTK_RANGE (scale), value);
+  }
+}
+
+void
 monitor_select_callback (GtkRadioButton* btn,
                          gpointer        data)
 {
@@ -85,10 +149,10 @@ monitor_select_callback (GtkRadioButton* btn,
           label, 
           toggled ? "true" : "false");
 
-  sdata->display_name = (char*) label;
-        
-
+  application_state_swap(sdata, label);
   g_mutex_unlock(&sdata->m);
+
+  application_state_update_sliders(sdata);
 }
 
 void
@@ -96,7 +160,6 @@ create_monitor_select (GtkContainer* container,
                        application_state* state)
 {
   char** mon = (char**)state->monitors->data;
-
   GtkWidget* group = NULL;
   for (int i=0; i < state->monitors->len; i++) {
     group = gtk_radio_button_new_with_label_from_widget (GTK_RADIO_BUTTON (group), mon[i]);
@@ -144,6 +207,7 @@ create_slider (GtkContainer*      container,
   scale = gtk_scale_new (GTK_ORIENTATION_HORIZONTAL, adjustment);
   gtk_widget_set_hexpand (GTK_WIDGET (scale), 1);
   gtk_container_add (GTK_CONTAINER (hcontainer), GTK_WIDGET (scale));
+  g_array_append_val(state->sliders, scale);
 
   // TODO: free memory when the widget is destroyed.
   // currently uneeded because slider exists for the lifetime of the application
@@ -201,6 +265,7 @@ activate (GtkApplication* app,
   gtk_window_set_default_size (GTK_WINDOW (window), 800, 500);
 
   layout = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+  
   create_monitor_select (GTK_CONTAINER (layout), (application_state*) user_data);
   create_sliders (GTK_CONTAINER (layout), (application_state*) user_data);
   
@@ -230,20 +295,45 @@ enum_monitors(GArray* dst)
   }
 }
 
-int
-main (int    argc,
-      char** argv)
+application_state*
+application_state_new ()
 {
-  gtk_init(&argc, &argv);
-
-  int status;
-  GtkApplication* app;
-  GtkCssProvider* cssp;
-
-  GArray* monitors = g_array_new(FALSE, TRUE, sizeof(char*));
+  GArray* monitors = g_array_new (FALSE, TRUE, sizeof(char*));
   enum_monitors (monitors);
 
-  // -------------------------- Apply CSS -------------------------------------
+  application_state state = {
+    m: {},
+    monitors: monitors,
+    monitor_states: g_hash_table_new(g_str_hash, g_str_equal),
+    sliders:        g_array_new(FALSE, TRUE, sizeof(GtkScale*)),
+    display_name: ((char**)monitors->data)[0],
+    brightness: 100,
+    r: 100,
+    g: 100,
+    b: 100,
+  };
+  g_mutex_init (&state.m);
+
+  application_state* m = (application_state*) malloc(sizeof(application_state));
+  *m = state;
+
+  return m;
+}
+
+void
+application_state_free (application_state* state)
+{
+  g_object_unref(state->monitor_states);
+  g_array_free(state->monitors, TRUE);
+  g_array_free(state->sliders, TRUE);
+  free(state);
+}
+
+void
+apply_css ()
+{
+  GtkCssProvider*    cssp;
+
   const gchar* css = "box { margin: 0px 10px 0px 10px; }\n"
                      "radiobutton { margin: 0px 0px 0px 20px; }\n";
   
@@ -253,29 +343,30 @@ main (int    argc,
   gtk_css_provider_load_from_data (cssp, css, sizeof(char)*strlen(css), &error);
   if (error) {
     printf ("main: error loading css: %d\n%s\n", error->code, error->message);
-    return 1;
+    exit(1);
   }
   gtk_style_context_add_provider_for_screen(screen, GTK_STYLE_PROVIDER (cssp), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-  // ----------------------------------------------------------------------------
+}
 
-  application_state state = {
-    m: {},
-    monitors: monitors,
-    display_name: ((char**)monitors->data)[0],
-    brightness: 100,
-    r: 100,
-    g: 100,
-    b: 100,
-  };
-  g_mutex_init (&state.m);
+int
+main (int    argc,
+      char** argv)
+{
+  gtk_init(&argc, &argv);
 
+  int                status;
+  GtkApplication*    app;
+  application_state* state = application_state_new();
+
+  apply_css();
+  
   app = gtk_application_new ("com.github.rydz.gtk-xrandr-gamma", G_APPLICATION_FLAGS_NONE);
-  g_signal_connect (app, "activate", G_CALLBACK (activate), &state);
+  g_signal_connect (app, "activate", G_CALLBACK (activate), state);
   status = g_application_run (G_APPLICATION (app), argc, argv);
 
   // free resources 
   g_object_unref (app);
-  g_array_free(monitors, FALSE);
+  application_state_free(state);
 
   return status;
 }
