@@ -21,5 +21,5 @@ make run
 ```
 
 ## TODO
-- Store slider settings relative to each display
+- ~~Store slider settings relative to each display~~
 - Redshift integration
