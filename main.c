@@ -92,7 +92,7 @@ application_state_swap (application_state* state,
     state->brightness = new_state->brightness;
   }
 
-  state->display_name = monitor;
+  state->display_name = (gchar*) monitor;
 }
 
 /**
