@@ -3,12 +3,14 @@
 // TODO: preserve slider states when changing monitors.
 
 #define SLIDER_MAX 100
+#define MAX(x, y) (x) > (y) ? x : y
 
 typedef struct monitor_state {
   int brightness;
   int r;
   int g;
   int b;
+  int base;
 } monitor_state;
 
 typedef struct application_state {
@@ -22,10 +24,11 @@ typedef struct application_state {
   GtkLabel*   command_label;     // label displaying generated command output
 
   // range 0-100
+  int brightness;
   int r;
   int g;
   int b;
-  int brightness;
+  int base;        // value to subtract from each rgb value
 } application_state;
 
 typedef struct slider_callback_data {
@@ -40,18 +43,24 @@ update_xrandr (application_state* state)
   g_mutex_lock (&state->m);
   printf ("update_xrandr: %d %d %d\n", state->r, state->g, state->b);
 
+  int r, g, b = 0;
+
+  r = MAX(state->r - state->base, 0);
+  g = MAX(state->g - state->base, 0);
+  b = MAX(state->b - state->base, 0);
+
   gchar* data = g_strdup_printf ("xrandr --output %s --gamma %.3f:%.3f:%.3f --brightness %.3f",
                                  state->display_name, 
-                                 !state->r ? 0.001 : (double)state->r  / SLIDER_MAX, 
-                                 !state->g ? 0.001 : (double)state-> g / SLIDER_MAX, 
-                                 !state->b ? 0.001 : (double)state->b  / SLIDER_MAX,
+                                 !state->r ? 0.001 : (double)r  / SLIDER_MAX, 
+                                 !state->g ? 0.001 : (double)g  / SLIDER_MAX, 
+                                 !state->b ? 0.001 : (double)b  / SLIDER_MAX,
                                  !state->brightness ? 0.01 : (double)state->brightness / SLIDER_MAX);
   printf ("update_xrandr: %s\n", data);
 
   // TODO: improve this
   system(data);
 
-  gchar* text = g_strdup_printf("command: %s", data);
+  gchar* text = g_strdup_printf("%s", data);
   gtk_label_set_text(state->command_label, text);
 
   free(text);
@@ -77,6 +86,7 @@ application_state_swap (application_state* state,
   ostate->r          = state->r;
   ostate->g          = state->g;
   ostate->b          = state->b;
+  ostate->base       = state->base;
 
   // swap new state into current
   monitor_state* new_state = g_hash_table_lookup(state->monitor_states, monitor);
@@ -85,11 +95,13 @@ application_state_swap (application_state* state,
     state->g = 100;
     state->b = 100;
     state->brightness = 100;
+    state->base = 0;
   } else {
     state->r = new_state->r;
     state->g = new_state->g;
     state->b = new_state->b;
     state->brightness = new_state->brightness;
+    state->base       = new_state->base;
   }
 
   state->display_name = (gchar*) monitor;
@@ -128,6 +140,7 @@ application_state_update_sliders (application_state* state)
     case 1: value = state->r;          break;
     case 2: value = state->g;          break;
     case 3: value = state->b;          break;
+    case 4: value = state->base;       break;
     default: 100;
     }
     GtkScale* scale = g_array_index(state->sliders, GtkScale*, i);
@@ -183,7 +196,8 @@ void
 create_slider (GtkContainer*      container,
                application_state* state,
                const gchar*       label,
-               int*               scalar)
+               int*               scalar,
+               const gchar*       tooltip)
 {
   GtkWidget*     wlabel;
   GtkWidget*     scale;
@@ -195,9 +209,10 @@ create_slider (GtkContainer*      container,
 
   wlabel = gtk_label_new(label);
   gtk_widget_set_size_request( GTK_WIDGET (wlabel), 100, 10);
+  gtk_widget_set_tooltip_text (GTK_WIDGET (wlabel), tooltip);
   gtk_container_add (GTK_CONTAINER (hcontainer), GTK_WIDGET (wlabel));
 
-  adjustment = gtk_adjustment_new(100, // value
+  adjustment = gtk_adjustment_new(*scalar, // value
                                   0,   // lower
                                   101, // upper
                                   1,   // step_increment
@@ -230,26 +245,13 @@ void
 create_sliders (GtkContainer*      container,
                 application_state* data)
 {
-
-  create_slider (container,
-                 data,
-                 "Brightness",
-                 &data->brightness);
-
-  create_slider (container,
-                 data,
-                 "Red",
-                 &data->r);
-
-  create_slider (container,
-                 data,
-                 "Green",
-                 &data->g);
-
-  create_slider (container,
-                 data,
-                 "Blue",
-                 &data->b);
+#define _CREATE_SLIDER(x, y, z) create_slider(container, data, (x), &data->y, (z))
+  _CREATE_SLIDER("Brightness", brightness, "monitor brightness");
+  _CREATE_SLIDER("Red",   r,               "gamma red value");
+  _CREATE_SLIDER("Green", g,               "gamma green value");
+  _CREATE_SLIDER("Blue",  b,               "gamma blue value");
+  _CREATE_SLIDER("Base",  base,            "base gamma value to subtract from each RGB value");
+#undef _CREATE_SLIDER
 }
 
 static void
@@ -311,6 +313,7 @@ application_state_new ()
     r: 100,
     g: 100,
     b: 100,
+    base: 0,
   };
   g_mutex_init (&state.m);
 
