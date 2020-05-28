@@ -1,7 +1,7 @@
 # gtk-xrandr-gamma
 Small graphical tool for previewing xrandr settings live
 
-![screenshot](https://i.imgur.com/Hq97f6S.png)
+![screenshot](https://i.imgur.com/3050HSp.png)
 
 ## Dependencies
 - GTK 3
